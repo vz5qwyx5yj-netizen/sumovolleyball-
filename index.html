@@ -315,36 +315,52 @@ const netSpringVX=(b,goLeft)=>{
 // ════════════════════════════════════════════
 const held1={l:false,r:false,j:false};
 
-function getTouchZone(t, rect){
-  const x=t.clientX-rect.left, y=t.clientY-rect.top;
-  const w=rect.width, h=rect.height;
-  // Bovenste 40% = springen
-  if(y < h*0.40) return 'j';
-  // Onderste 60%: links / rechts split midden
-  if(x < w*0.50) return 'l';
-  return 'r';
-}
-function updateHeld(touches, rect){
-  held1.l=false; held1.r=false; held1.j=false;
+// Besturing: links/rechts = vasthouden op linker/rechter schermhelft.
+//            springen = omhoog swipen, waar dan ook op het scherm.
+const SWIPE_DIST = 0.06;   // min. verticale afstand (fractie schermhoogte)
+const SWIPE_TIME = 350;    // max. duur van de swipe (ms)
+const touchData = {};      // per vinger: startpositie, tijd, of er al gesprongen is
+let jumpUntil = 0;         // springen blijft kort "ingedrukt" na een swipe
+
+function updateLR(touches, rect){
+  // Links/rechts bepalen door waar de vingers nu zijn
+  held1.l=false; held1.r=false;
   Array.from(touches).forEach(t=>{
-    const z=getTouchZone(t, rect);
-    if(z) held1[z]=true;
+    const x=t.clientX-rect.left;
+    if(x < rect.width*0.50) held1.l=true; else held1.r=true;
   });
 }
 canvas.addEventListener('touchstart', e=>{
   e.preventDefault();
-  updateHeld(e.touches, canvas.getBoundingClientRect());
+  const rect=canvas.getBoundingClientRect();
+  Array.from(e.changedTouches).forEach(t=>{
+    touchData[t.identifier]={ x:t.clientX, y:t.clientY, t:performance.now(), jumped:false };
+  });
+  updateLR(e.touches, rect);
 }, {passive:false});
 canvas.addEventListener('touchmove', e=>{
   e.preventDefault();
-  updateHeld(e.touches, canvas.getBoundingClientRect());
+  const rect=canvas.getBoundingClientRect();
+  const now=performance.now();
+  Array.from(e.changedTouches).forEach(t=>{
+    const d=touchData[t.identifier];
+    if(!d || d.jumped) return;
+    const up = d.y - t.clientY;                 // positief = omhoog geveegd
+    if(up > rect.height*SWIPE_DIST && (now-d.t) < SWIPE_TIME){
+      jumpUntil = now + 120;                     // spring-puls
+      d.jumped = true;                           // niet nog eens met dezelfde veeg
+    }
+  });
+  updateLR(e.touches, rect);
 }, {passive:false});
 canvas.addEventListener('touchend', e=>{
   e.preventDefault();
-  updateHeld(e.touches, canvas.getBoundingClientRect());
+  Array.from(e.changedTouches).forEach(t=>{ delete touchData[t.identifier]; });
+  updateLR(e.touches, canvas.getBoundingClientRect());
 }, {passive:false});
 canvas.addEventListener('touchcancel', e=>{
-  held1.l=false; held1.r=false; held1.j=false;
+  Array.from(e.changedTouches||[]).forEach(t=>{ delete touchData[t.identifier]; });
+  held1.l=false; held1.r=false;
 }, {passive:false});
 
 // Voor desktop testen
@@ -353,27 +369,30 @@ document.addEventListener('keydown', e=>{ K[e.key]=true; });
 document.addEventListener('keyup',   e=>{ K[e.key]=false; });
 const p1L=()=> held1.l || K['a'] || K['A'] || K['ArrowLeft'];
 const p1R=()=> held1.r || K['d'] || K['D'] || K['ArrowRight'];
-const p1J=()=> held1.j || K['w'] || K['W'] || K['ArrowUp'] || K[' '];
+const p1J=()=> performance.now() < jumpUntil || K['w'] || K['W'] || K['ArrowUp'] || K[' '];
 
-// Muis voor desktop test
-let mouseDown=false;
+// Muis voor desktop test: links/rechts vasthouden, omhoog slepen = springen
+let mouseDown=false, mouseStartY=0, mouseStartT=0, mouseJumped=false;
 canvas.addEventListener('mousedown', e=>{
-  mouseDown=true;
+  mouseDown=true; mouseStartY=e.clientY; mouseStartT=performance.now(); mouseJumped=false;
   const rect=canvas.getBoundingClientRect();
-  updateHeld([{clientX:e.clientX, clientY:e.clientY}], rect);
+  held1.l=false; held1.r=false;
+  if(e.clientX-rect.left < rect.width*0.50) held1.l=true; else held1.r=true;
 });
 canvas.addEventListener('mousemove', e=>{
   if(!mouseDown) return;
   const rect=canvas.getBoundingClientRect();
-  updateHeld([{clientX:e.clientX, clientY:e.clientY}], rect);
+  held1.l=false; held1.r=false;
+  if(e.clientX-rect.left < rect.width*0.50) held1.l=true; else held1.r=true;
+  if(!mouseJumped && (mouseStartY-e.clientY) > rect.height*SWIPE_DIST && (performance.now()-mouseStartT) < SWIPE_TIME){
+    jumpUntil=performance.now()+120; mouseJumped=true;
+  }
 });
 canvas.addEventListener('mouseup', ()=>{
-  mouseDown=false;
-  held1.l=false; held1.r=false; held1.j=false;
+  mouseDown=false; held1.l=false; held1.r=false;
 });
 canvas.addEventListener('mouseleave', ()=>{
-  mouseDown=false;
-  held1.l=false; held1.r=false; held1.j=false;
+  mouseDown=false; held1.l=false; held1.r=false;
 });
 
 // ════════════════════════════════════════════
