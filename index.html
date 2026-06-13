@@ -20,7 +20,7 @@
     background:#0a4a78;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   }
-  #app{position:relative;width:100%;height:100%;}
+  #app{position:fixed;inset:0;}
   #cwrap{position:absolute;inset:0;overflow:hidden;}
   canvas{position:absolute;display:block;image-rendering:auto;}
   #scorebar{
@@ -202,8 +202,9 @@ const ctx=canvas.getContext('2d');
 
 function resize(){
   const wrap=document.getElementById('cwrap');
-  const rw=wrap.clientWidth||window.innerWidth;
-  const rh=wrap.clientHeight||window.innerHeight;
+  // Echte schermafmeting incl. safe-area's (home-indicator onderaan)
+  const rw=Math.max(wrap.clientWidth, window.innerWidth);
+  const rh=Math.max(wrap.clientHeight, window.innerHeight);
   // Interne tekenresolutie: hele wereld scherp in beeld (uniform geschaald)
   SCALE=Math.min(rw/VW, rh/VH);
   CW=Math.round(VW*SCALE);
