@@ -204,16 +204,18 @@ function resize(){
   const wrap=document.getElementById('cwrap');
   const rw=wrap.clientWidth||window.innerWidth;
   const rh=wrap.clientHeight||window.innerHeight;
-  // Fit zodat hele wereld zichtbaar is, met letterboxing waar nodig
+  // Interne tekenresolutie: hele wereld scherp in beeld (uniform geschaald)
   SCALE=Math.min(rw/VW, rh/VH);
   CW=Math.round(VW*SCALE);
   CH=Math.round(VH*SCALE);
   canvas.width=CW;
   canvas.height=CH;
-  canvas.style.width=CW+'px';
-  canvas.style.height=CH+'px';
-  canvas.style.left=Math.round((rw-CW)/2)+'px';
-  canvas.style.top=Math.round((rh-CH)/2)+'px';
+  // Via CSS het hele scherm vullen (geen blauwe balken meer);
+  // licht verticaal uitrekken i.p.v. afsnijden, zodat niets van het spel wegvalt.
+  canvas.style.width=rw+'px';
+  canvas.style.height=rh+'px';
+  canvas.style.left='0px';
+  canvas.style.top='0px';
 }
 resize();
 window.addEventListener('resize',resize);
