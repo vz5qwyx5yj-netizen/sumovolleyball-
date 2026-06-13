@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Sumo Beach Volley</title>
+<!-- PWA / installeerbare app -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a4a78">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sumo Volley">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{
@@ -1069,6 +1077,41 @@ function loop(){
   requestAnimationFrame(loop);
 }
 loop();
+
+// ════════════════════════════════════════════
+//  PWA — service worker + update-melding
+// ════════════════════════════════════════════
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      // Bij elke pagina-load checken op een nieuwe versie
+      reg.update();
+      reg.addEventListener('updatefound', ()=>{
+        const sw = reg.installing;
+        if(!sw) return;
+        sw.addEventListener('statechange', ()=>{
+          // Nieuwe versie klaar én er draait al een oude -> melding tonen
+          if(sw.state==='installed' && navigator.serviceWorker.controller){
+            showUpdateToast();
+          }
+        });
+      });
+    }).catch(()=>{});
+  });
+}
+
+function showUpdateToast(){
+  if(document.getElementById('updToast')) return;
+  const t=document.createElement('div');
+  t.id='updToast';
+  t.textContent='✨ Nieuwe versie — tik om te laden';
+  t.style.cssText='position:fixed;left:50%;bottom:max(env(safe-area-inset-bottom),16px);'
+    +'transform:translateX(-50%);background:#0a4a78;color:#fff;padding:12px 20px;'
+    +'border-radius:16px;font-weight:700;font-size:0.95rem;z-index:9999;'
+    +'box-shadow:0 4px 16px rgba(0,0,0,.4);cursor:pointer;';
+  t.onclick=()=>location.reload();
+  document.body.appendChild(t);
+}
 </script>
 </body>
 </html>

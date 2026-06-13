@@ -5,6 +5,11 @@ cd "$(dirname "$0")" || exit 1
 echo "🎮 Sumo Beach Volley - uploaden naar GitHub..."
 echo ""
 
+# Cache-versie in de service worker ophogen, zodat de telefoon de update oppikt
+if [ -f sw.js ]; then
+  sed -i '' "s/const CACHE = 'sumo-v[0-9]*'/const CACHE = 'sumo-v$(date +%Y%m%d%H%M%S)'/" sw.js
+fi
+
 git add -A
 
 if git diff --cached --quiet; then
