@@ -22,7 +22,7 @@
   }
   #app{position:fixed;inset:0;}
   #cwrap{position:absolute;inset:0;overflow:hidden;}
-  canvas{position:absolute;display:block;image-rendering:auto;}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block;image-rendering:auto;}
   #scorebar{
     position:absolute;top:0;left:0;right:0;
     display:flex;justify-content:space-between;align-items:center;
@@ -205,18 +205,14 @@ function resize(){
   // Echte schermafmeting incl. safe-area's (home-indicator onderaan)
   const rw=Math.max(wrap.clientWidth, window.innerWidth);
   const rh=Math.max(wrap.clientHeight, window.innerHeight);
-  // Interne tekenresolutie: hele wereld scherp in beeld (uniform geschaald)
+  // Interne tekenresolutie: hele wereld scherp in beeld (uniform geschaald).
+  // De DISPLAY-grootte wordt door CSS bepaald (canvas: inset:0 = volledig scherm,
+  // incl. safe-area's), dus we zetten hier alleen de tekenbuffer.
   SCALE=Math.min(rw/VW, rh/VH);
   CW=Math.round(VW*SCALE);
   CH=Math.round(VH*SCALE);
   canvas.width=CW;
   canvas.height=CH;
-  // Via CSS het hele scherm vullen (geen blauwe balken meer);
-  // licht verticaal uitrekken i.p.v. afsnijden, zodat niets van het spel wegvalt.
-  canvas.style.width=rw+'px';
-  canvas.style.height=rh+'px';
-  canvas.style.left='0px';
-  canvas.style.top='0px';
 }
 resize();
 window.addEventListener('resize',resize);
