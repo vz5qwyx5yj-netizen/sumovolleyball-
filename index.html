@@ -567,7 +567,7 @@ function playerNet(p, nb){
     p.y = netTop - R;
     const cb = nb.v;
     p.vy = netSpringJF(cb);
-    p.vx = netSpringVX(cb, p.side===0);
+    p.vx = 0;   // recht omhoog; sturen kan nog via links/rechts tikken in de lucht
     p.grounded=false;
     nb.v = Math.min(cb+1, 10);
     p.onNet=true;
