@@ -1,13 +1,13 @@
 {
   "name": "Sumo Beach Volley",
   "short_name": "Sumo Volley",
-  "description": "Sumo beach volleybal — speel tegen de computer of samen!",
+  "description": "Kies je sumo en speel beachvolleybal tegen de computer op het tropische strand van Palm Bay.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0a4a78",
-  "theme_color": "#0a4a78",
+  "background_color": "#f7f4e7",
+  "theme_color": "#f7f4e7",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }

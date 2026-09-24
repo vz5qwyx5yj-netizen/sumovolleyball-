@@ -1,9 +1,13 @@
 // Service worker voor Sumo Beach Volley
 // CACHE wordt automatisch ververst bij elke upload (upload.command bumpt dit getal).
-const CACHE = 'sumo-v20260614001950';
+const CACHE = 'sumo-v20260924220715';
 const CORE = [
   './',
   './index.html',
+  './game.css',
+  './game-art.js',
+  './assets/images/tropical-beach-v2.png',
+  './assets/images/sumo-roster-v2.png',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png'
