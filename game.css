@@ -91,6 +91,15 @@ button:disabled{cursor:default;opacity:.4;}
 .matchup-player strong{display:block;font-size:14px;font-weight:900;margin-top:2px;}
 .matchup-player small{font-size:9px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;}
 .versus{font-size:11px;font-weight:900;color:#97a38f;}
+#difficultyPicker{border:0;min-width:0;width:100%;max-width:310px;margin:0 0 20px;}
+#difficultyPicker legend{width:100%;font-size:10px;font-weight:900;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;color:var(--teal);}
+.difficulty-options{display:flex;gap:5px;}
+.difficulty-options label{position:relative;flex:1;min-width:0;cursor:pointer;touch-action:manipulation;}
+.difficulty-options input{position:absolute;opacity:0;width:1px;height:1px;}
+.difficulty-options span{display:flex;align-items:center;justify-content:center;min-height:44px;padding:8px 3px;border:1px solid #cbd3c3;border-radius:12px;background:#fffdf4;color:#63746d;font-size:clamp(9px,3cqw,12px);font-weight:800;}
+.difficulty-options input:checked+span{background:var(--teal);border-color:var(--teal);color:#fff;box-shadow:0 3px 0 #185e59;}
+.difficulty-options input:focus-visible+span{outline:3px solid #176f83;outline-offset:3px;}
+#difficultyHint{font-size:11px;line-height:1.5;color:var(--muted);margin-top:10px;min-height:33px;}
 #menu .winner{font-size:clamp(30px,10cqw,44px);font-weight:900;letter-spacing:-1.5px;color:var(--teal);margin:10px 0;}
 #menu .final{font-size:17px;color:var(--ink);margin-bottom:24px;}
 #howto{margin-top:26px;font-size:11px;line-height:1.8;color:#6c7b70;max-width:280px;}
@@ -107,10 +116,14 @@ button:disabled{cursor:default;opacity:.4;}
   #keuze-dots{margin:8px 0;}
   .selection-note{margin-top:10px;font-size:9px;}
   #kiesBtn{min-height:48px;padding:13px 14px;}
-  #menu .matchup{margin-bottom:14px;}
-  #menu .matchup-player{max-width:85px;}
+  #menu .matchup{margin:0 0 10px;}
+  #menu .matchup-player{max-width:65px;}
   #menu h1{font-size:30px;}
-  #howto{margin-top:16px;line-height:1.65;}
+  #howto{margin-top:14px;font-size:10px;line-height:1.6;}
+  #menu .sub{margin-bottom:12px;}
+  #difficultyPicker{margin-bottom:12px;}
+  #difficultyPicker legend{margin-bottom:7px;}
+  #difficultyHint{font-size:10px;margin-top:7px;min-height:30px;}
 }
 @media (max-height:480px){
   #keuzescherm .brand,#keuzescherm>.sub,.fighter-description,.selection-note{display:none;}
@@ -121,6 +134,14 @@ button:disabled{cursor:default;opacity:.4;}
   .fighter-stats{gap:7px;}
   .stat-label{font-size:7px;letter-spacing:.3px;}
   #kiesBtn{font-size:12px;white-space:nowrap;}
+  #menu h1{font-size:24px;margin-bottom:8px;}
+  #menu .eyebrow{font-size:8px;letter-spacing:1px;}
+  #menu .menu-intro{display:none;}
+  #menu .matchup-player{max-width:46px;}
+  #menu .matchup-player strong{font-size:11px;}
+  #menu .matchup-player small{font-size:8px;letter-spacing:0;}
+  #menu .sub{font-size:10px;}
+  #playBtn{min-height:48px;padding:10px;font-size:13px;}
 }
 @container (max-width:240px){
   #pauseBtn{width:32px;height:32px;top:8px;right:8px;}

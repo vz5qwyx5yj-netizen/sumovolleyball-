@@ -62,8 +62,73 @@ with sync_playwright() as pw:
     page.locator('#kiesBtn').click()
     page.locator('.touch-help').wait_for(state='visible')
     assert 'veeg omhoog' in page.locator('.touch-help').inner_text()
+    assert page.get_by_role('radio', name='Normaal', exact=True).is_checked()
+    page.get_by_role('radio', name='Makkelijk', exact=True).check()
+    assert 'Rustig inkomen' in page.locator('#difficultyHint').inner_text()
+    page.get_by_role('radio', name='Moeilijk', exact=True).check()
+    page.reload(wait_until='networkidle')
+    page.locator('#kiesBtn').click()
+    page.locator('#difficultyPicker').wait_for(state='visible')
+    assert page.get_by_role('radio', name='Moeilijk', exact=True).is_checked()
+    page.get_by_role('radio', name='Moeilijk', exact=True).focus()
+    page.keyboard.press('ArrowLeft')
+    assert page.get_by_role('radio', name='Normaal', exact=True).is_checked()
+    assert page.evaluate("selectedDifficulty==='normal'")
     page.locator('#playBtn').click()
     assert page.locator('#controls').is_visible()
+    assert 'Normaal' in page.locator('#matchLabel').text_content()
+    print('PASS: niveaus kiezen met aanraking en toetsenbord; keuze blijft na herladen bewaard')
+
+    profiles = page.evaluate('''()=>{
+        const results={};
+        const originalRandom=Math.random;
+        Math.random=()=>.9;
+        for(const level of Object.keys(difficulties)){
+            selectedDifficulty=level; init(); running=true; serveMode=false;
+            ball={x:300,y:330,vx:3,vy:1,spin:0};
+            let observedAt=0;
+            for(let step=0;step<30;step++){
+                updateCPU();
+                if(cpuSeenFlight===0){ observedAt=step; break; }
+            }
+            const error=cpuAimError, timing=cpuJumpError;
+            for(let step=0;step<40;step++) updateCPU();
+            const stable=error===cpuAimError && timing===cpuJumpError;
+            ballFlight++; ball.vx=-5;
+            for(let step=0;step<difficulties[level].reactionSteps;step++) updateCPU();
+            const waited=cpuSeenFlight===0;
+            updateCPU();
+            const noticed=cpuSeenFlight===1;
+            const stats=JSON.stringify({p1:p1.stats,p2:p2.stats});
+            // Een nieuwe keuze mag de lopende wedstrijd niet aanpassen.
+            selectedDifficulty=level==='easy'?'hard':'easy';
+            const fixed=matchDifficulty===level;
+            pauseGame();
+            const paused=JSON.stringify({cpuTick,cpuHistory,cpuPlan});
+            __frame(__testTime+5000);
+            const frozen=paused===JSON.stringify({cpuTick,cpuHistory,cpuPlan});
+            resumeGame();
+            resetPositions();
+            const reset=cpuHistory.length===0 && cpuPlan===null && cpuSeenFlight===-1;
+            results[level]={observedAt,error,timing,stable,waited,noticed,stats,fixed,frozen,reset};
+        }
+        Math.random=originalRandom;
+        selectedDifficulty='normal'; srv=0; init(); running=true;
+        return results;
+    }''')
+    assert [profiles[level]['observedAt'] for level in ['easy', 'normal', 'hard']] == [21, 11, 5], profiles
+    assert profiles['easy']['error'] > profiles['normal']['error'] > profiles['hard']['error'] > 0
+    assert profiles['easy']['timing'] > profiles['normal']['timing'] > profiles['hard']['timing'] > 0
+    assert len({profile['stats'] for profile in profiles.values()}) == 1
+    for profile in profiles.values():
+        assert all(profile[key] for key in ['stable', 'waited', 'noticed', 'fixed', 'frozen', 'reset']), profile
+    print('PASS: echte reactievertraging, stabiele richt- en timingfouten, vaste stats en correct pauzeren/resetten')
+
+    scenarios = page.evaluate((ROOT / 'tests/cpu_scenarios.js').read_text())
+    assert scenarios['easy']['returns'] < scenarios['normal']['returns'] < scenarios['hard']['returns'], scenarios
+    assert scenarios['hard']['smashes'] > scenarios['easy']['smashes'], scenarios
+    assert all(result['total'] == 1024 and result['serves'] == 4 for result in scenarios.values()), scenarios
+    print('PASS: 1.024 gelijke balbanen per niveau: meer geslaagde terugslagen bij hogere moeilijkheid;', scenarios)
 
     states = {}
     for hz in [30, 60, 120, 144]:
@@ -134,6 +199,8 @@ with sync_playwright() as pw:
     assert before == page.evaluate('JSON.stringify({p1,p2,ball,score,deadT})')
     page.keyboard.press('Escape')
     assert page.evaluate("menuMode==='pause' && !running")
+    assert page.locator('#difficultyPicker').is_hidden()
+    assert 'Niveau: Normaal' in page.locator('#menuContent').inner_text()
     page.keyboard.press('Escape')
     assert page.evaluate('running')
     page.evaluate('''()=>{
@@ -187,6 +254,7 @@ with sync_playwright() as pw:
     }''')
     page.wait_for_function("menuMode==='win'", polling=50)
     assert '10 - 0' in page.locator('.final').inner_text()
+    assert page.locator('#difficultyPicker').is_hidden()
     page.locator('#playBtn').click()
     assert page.locator('#keuzescherm').evaluate('(el)=>!el.inert')
     page.locator('#kiesBtn').click()
@@ -211,7 +279,34 @@ with sync_playwright() as pw:
         assert abs(layout['ratio'] - 0.5) < 0.005, layout
         assert abs(layout['sharpness'] - 2) < 0.01, layout
         assert layout['buttonFits'], (width, height, layout)
+        page.locator('#kiesBtn').click()
+        page.evaluate('menu.scrollTop=0')
+        for level in ['Makkelijk', 'Normaal', 'Moeilijk']:
+            page.get_by_role('radio', name=level, exact=True).check()
+            assert page.evaluate('''()=>{
+                const rect=canvas.getBoundingClientRect();
+                const button=playBtn.getBoundingClientRect();
+                const picker=difficultyPicker.getBoundingClientRect();
+                return picker.top>=rect.top && button.bottom<=rect.bottom;
+            }'''), (width, height, level)
     print('PASS: correcte verhoudingen, scherp tekenbuffer en zichtbare keuzeknop op vier schermformaten')
+
+    page.evaluate("localStorage.setItem('sumo-difficulty','ongeldig')")
+    page.reload(wait_until='networkidle')
+    assert page.evaluate("selectedDifficulty==='normal'")
+    blocked_page = context.new_page()
+    blocked_page.on('pageerror', lambda error: errors.append(str(error)))
+    blocked_page.add_init_script('''
+        Storage.prototype.getItem=()=>{throw new Error('Storage blocked');};
+        Storage.prototype.setItem=()=>{throw new Error('Storage blocked');};
+    ''')
+    blocked_page.goto(ORIGIN, wait_until='networkidle')
+    blocked_page.locator('#kiesBtn').click()
+    blocked_page.get_by_role('radio', name='Makkelijk', exact=True).check()
+    blocked_page.locator('#playBtn').click()
+    assert blocked_page.evaluate("running && matchDifficulty==='easy'")
+    blocked_page.close()
+    print('PASS: ongeldige of geblokkeerde browseropslag verhindert het spelen niet')
 
     page.goto((ROOT / 'index.html').as_uri(), wait_until='load')
     page.wait_for_function('bgReady && atlasReady', polling=50)

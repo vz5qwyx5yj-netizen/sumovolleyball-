@@ -18,7 +18,7 @@
 <div id="app">
   <div id="scorebar" hidden>
     <button id="pauseBtn" type="button" aria-label="Spel pauzeren" hidden>Ⅱ</button>
-    <div class="match-label">Palm Bay · tot 10</div>
+    <div class="match-label" id="matchLabel">Palm Bay · Normaal</div>
     <div class="score-line" aria-label="Score">
       <span class="score" id="sc1">0</span><span class="score-divider">:</span><span class="score" id="sc2">0</span>
     </div>
@@ -60,6 +60,15 @@
   </div>
   <div id="menu" inert>
     <div id="menuContent"></div>
+    <fieldset id="difficultyPicker" aria-describedby="difficultyHint">
+      <legend>Kies je uitdaging</legend>
+      <div class="difficulty-options">
+        <label><input type="radio" name="difficulty" value="easy"><span>Makkelijk</span></label>
+        <label><input type="radio" name="difficulty" value="normal" checked><span>Normaal</span></label>
+        <label><input type="radio" name="difficulty" value="hard"><span>Moeilijk</span></label>
+      </div>
+      <p id="difficultyHint" aria-live="polite"></p>
+    </fieldset>
     <button id="playBtn">Spelen</button>
     <div id="howto">
       <div class="touch-help">
@@ -168,6 +177,19 @@ const charStats = {
   paars:     { speed: 1.20, jump: 1.00, attack: 0.85, defense: 1.18 },  // Schaduw: snel & defensief
 };
 const chosenChars = { p1: 'turquoise', p2: 'rood' };
+
+// Alleen het inzicht van de CPU verandert; karakterstats en physics blijven gelijk.
+const difficulties={
+  easy:{name:'Makkelijk',reactionSteps:21,aimError:36,jumpError:12,description:'Rustig inkomen. Je tegenstander laat wat meer ruimte.'},
+  normal:{name:'Normaal',reactionSteps:11,aimError:16,jumpError:5,description:'Een sportieve strijd, met ruimte voor een foutje.'},
+  hard:{name:'Moeilijk',reactionSteps:5,aimError:4,jumpError:1,description:'Snelle reacties, precieze sprongen. Laat je beste spel zien.'}
+};
+let selectedDifficulty='normal';
+try{
+  const saved=localStorage.getItem('sumo-difficulty');
+  if(Object.prototype.hasOwnProperty.call(difficulties,saved)) selectedDifficulty=saved;
+}catch{} // Ook speelbaar als de browser opslag blokkeert.
+let matchDifficulty=selectedDifficulty;
 
 // Net-veer
 const netSpringJF=(b)=>{
@@ -381,11 +403,13 @@ function resetPositions(){
   p2.x=VW*0.73; p2.y=GND()-PR(); p2.vx=0; p2.vy=0; p2.grounded=true; p2.onNet=false;
   p1NB.v=0; p2NB.v=0;
   p1.hitT=0; p2.hitT=0; ballTrail=[]; impact=null;
+  resetCPU();
 }
 function init(){
   resetInput();
   resetClock();
-  cpuJumpCooldown=0; cpuMistakeT=0;
+  matchDifficulty=selectedDifficulty;
+  resetCPU();
   p1=mkPlayer(0); p2=mkPlayer(1);
   ball=mkBall(srv);
   dead=false; deadT=0; over=false;
@@ -396,6 +420,7 @@ function init(){
   updateScore();
 }
 function updateScore(){
+  document.getElementById('matchLabel').textContent='Palm Bay · '+difficulties[matchDifficulty].name;
   document.getElementById('sc1').textContent=score[0];
   document.getElementById('sc2').textContent=score[1];
   document.getElementById('p1Name').textContent=characters[chosenChars.p1].name+' · JIJ';
@@ -406,105 +431,103 @@ function updateScore(){
 }
 
 // ════════════════════════════════════════════
-//  CPU AI — bijna perfect, mist op extreme hoeken
+//  CPU AI — vertraagde waarneming, vaste inschattingsfout per balbaan
 // ════════════════════════════════════════════
 const cpuIn={l:false, r:false, j:false};
-let cpuReaction=0;     // frames vertraging om te 'denken'
-let cpuJumpCooldown=0;
-let cpuMistakeT=0;     // korte momenten van foutjes
-let cpuMistakeDir=0;   // vaste richting tijdens een mistake
+let ballFlight=0, cpuSeenFlight=-1, cpuTick=0;
+let cpuHistory=[], cpuPlan=null;
+let cpuAimError=0, cpuJumpError=0, cpuWasGrounded=true;
 
-function predictBallLanding(){
-  // Simuleer bal in CPU's helft tot bal de speler-hoogte bereikt
-  const predicted={x:ball.x,y:ball.y,vx:ball.vx,vy:ball.vy};
-  const targetY = GND() - PR();
-  let t = 0;
-  while(predicted.y < targetY && t < 240){
-    const prevX=predicted.x, prevY=predicted.y;
-    predicted.vy += G_BALL;
-    predicted.vx *= .995;
-    predicted.x += predicted.vx; predicted.y += predicted.vy;
-    // Wand bounce
-    if(predicted.x-BR()<0){ predicted.x=BR(); predicted.vx=Math.abs(predicted.vx)*.7; }
-    if(predicted.x+BR()>VW){ predicted.x=VW-BR(); predicted.vx=-Math.abs(predicted.vx)*.7; }
-    if(predicted.y-BR()<0){ predicted.y=BR(); predicted.vy=Math.abs(predicted.vy)*.7; }
-    resolveBallNet(predicted,prevX,prevY);
-    t++;
+function resetCPU(){
+  ballFlight=0; cpuSeenFlight=-1; cpuTick=0;
+  cpuHistory=[]; cpuPlan=null;
+  cpuAimError=0; cpuJumpError=0; cpuWasGrounded=true;
+  cpuIn.l=false; cpuIn.r=false; cpuIn.j=false;
+}
+
+// Dezelfde vrije balbaan voor de echte bal en de voorspelling, inclusief paal.
+function stepBallFlight(b){
+  const prevX=b.x, prevY=b.y;
+  b.vy+=G_BALL; b.vx*=.995;
+  b.x+=b.vx; b.y+=b.vy;
+  if(b.x-BR()<0){ b.x=BR(); b.vx=Math.abs(b.vx)*.7; }
+  if(b.x+BR()>VW){ b.x=VW-BR(); b.vx=-Math.abs(b.vx)*.7; }
+  if(b.y-BR()<0){ b.y=BR(); b.vy=Math.abs(b.vy)*.7; }
+  resolveBallNet(b,prevX,prevY);
+}
+
+function planCPU(observed,age){
+  const predicted={...observed};
+  // Vooruitdenken vanaf de oude waarneming. Nieuwe slagen zijn pas na de
+  // reactietijd zichtbaar; de CPU kan die dus niet alvast corrigeren.
+  for(let t=0;t<age;t++) stepBallFlight(predicted);
+  const path=[];
+  for(let t=0;t<240 && predicted.y<GND()-BR();t++){
+    path.push({x:predicted.x,y:predicted.y,t});
+    stepBallFlight(predicted);
   }
-  return {x:predicted.x, y:predicted.y, t};
+  const clampTarget=x=>Math.max(NET_X()+PR()+10,Math.min(VW-PR(),x));
+  const landing=path[path.length-1];
+  // Iets rechts onder de bal staan helpt om hem naar links terug te slaan.
+  const aimOffset=PR()*.5+cpuAimError;
+  const plan={targetX:landing && landing.x>NET_X()?clampTarget(landing.x+aimOffset):VW*.68,jumpAt:Infinity};
+  const jumpSpeed=Math.sqrt(2*G_PLR*MAX_JUMP()*p2.stats.jump);
+  const ascentSpeed=jumpSpeed-G_PLR/2;
+  let bestQuality=-Infinity;
+  for(const point of path){
+    if(point.x<NET_X()+PR()+10 || point.t===0) continue;
+    const targetX=clampTarget(point.x+aimOffset);
+    // Houd rekening met de echte snelheid van dit personage in de lucht.
+    if(Math.abs(targetX-p2.x)>SPD()*p2.stats.speed*AIR_CTRL()*point.t+PR()/2) continue;
+    const height=GND()-PR()-(point.y+(PR()+BR())*.8);
+    const discriminant=ascentSpeed*ascentSpeed-2*G_PLR*height;
+    if(height<0 || discriminant<0) continue;
+    const jumpAge=(ascentSpeed-Math.sqrt(discriminant))/G_PLR;
+    const wait=point.t-jumpAge;
+    if(wait<0) continue;
+    const nearApex=ascentSpeed/G_PLR-jumpAge<7;
+    const netTime=(point.x-NET_X()-NET_W()-BR())/(7.5*p2.stats.attack);
+    const smashAtNet=point.y+6*p2.stats.attack*netTime+G_BALL*.5*netTime*netTime;
+    // Achterin liever een hoge terugslag dan een smash recht in de paal.
+    if(!observed.serve && nearApex && smashAtNet>NET_TOP()-BR()-8) continue;
+    // Een hoge, bereikbare bal biedt de beste kans op een smash.
+    const quality=jumpAge-point.t*.02;
+    if(quality>bestQuality){
+      bestQuality=quality;
+      plan.targetX=targetX;
+      plan.jumpAt=cpuTick+Math.max(0,Math.round(wait)+cpuJumpError);
+    }
+  }
+  return plan;
 }
 
 function updateCPU(){
   cpuIn.l=false; cpuIn.r=false; cpuIn.j=false;
-  if(dead || over){ return; }
-
-  if(cpuJumpCooldown>0) cpuJumpCooldown--;
-  if(cpuMistakeT>0) cpuMistakeT--;
-
-  // Service modus: CPU staat klaar, springt + slaat als het zijn beurt is
-  if(serveMode && srv===1){
-    const target = VW*0.73;
-    if(p2.x < target-3) cpuIn.r=true;
-    else if(p2.x > target+3) cpuIn.l=true;
-    if(ball.y > GND()-220 && p2.grounded && cpuJumpCooldown<=0){
-      cpuIn.j=true;
-      cpuJumpCooldown=20;
-    }
-    return;
+  if(dead || over) return;
+  cpuTick++;
+  const level=difficulties[matchDifficulty];
+  cpuHistory.push({x:ball.x,y:ball.y,vx:ball.vx,vy:ball.vy,flight:ballFlight,serve:serveMode && srv===1});
+  if(cpuHistory.length<=level.reactionSteps) return;
+  const observed=cpuHistory.shift();
+  const newFlight=observed.flight!==cpuSeenFlight;
+  if(newFlight){
+    cpuSeenFlight=observed.flight;
+    // Eén afwijking per slag, nooit nieuwe willekeur per beeldje.
+    cpuAimError=observed.serve?0:(Math.random()*2-1)*level.aimError;
+    cpuJumpError=observed.serve?0:Math.round((Math.random()*2-1)*level.jumpError);
   }
-
-  // Voorspel waar de bal naartoe gaat
-  const pred = predictBallLanding();
-  const ballComing = ball.vx > 0.3 || (ball.x > NET_X() && ball.vx > -0.5);
-
-  let targetX;
-  if(ballComing){
-    targetX = pred.x;
-    if(targetX < NET_X()+PR()+10) targetX = NET_X()+PR()+10;
-    if(targetX > VW-PR()) targetX = VW-PR();
-  } else {
-    // Defensieve positie — dichter bij midden zodat hij snel kan reageren
-    targetX = VW*0.68;
+  if(newFlight || (p2.grounded && !cpuWasGrounded)){
+    cpuPlan=planCPU(observed,level.reactionSteps);
   }
-
-  // Foutmarge alleen op echt extreme hoeken (zeer zeldzaam)
-  const ballSpeed = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
-  const isExtreme = (pred.x > VW*0.94 || pred.x < NET_X()+PR()+10) && ballSpeed > 7.5;
-  if(isExtreme && Math.random()<0.004 && cpuMistakeT===0){
-    cpuMistakeT = 10 + Math.floor(Math.random()*12);
-    cpuMistakeDir = Math.random()<0.5 ? -1 : 1;
-  }
-  if(cpuMistakeT>0){
-    targetX = p2.x + cpuMistakeDir*25;
-  }
-
-  // Beweeg richting target — deadzone groter dan stap per frame om oscillatie te voorkomen
-  const dx = targetX - p2.x;
-  const deadzone = SPD()*(p2.stats?.speed||1) + 2;
+  cpuWasGrounded=p2.grounded;
+  if(!cpuPlan) return;
+  const dx=cpuPlan.targetX-p2.x;
+  const deadzone=SPD()*p2.stats.speed+2;
   if(dx < -deadzone) cpuIn.l=true;
   else if(dx > deadzone) cpuIn.r=true;
-
-  // Spring beslissing — agressiever
-  const dxBall = ball.x - p2.x;
-  const dyBall = ball.y - p2.y;
-  const horizClose = Math.abs(dxBall) < PR()*2.2;
-  const ballAbove = dyBall < -PR()*0.3 && dyBall > -300;
-
-  // Smash kans: bal hoog en bijna boven CPU
-  if(p2.grounded && cpuJumpCooldown<=0 && horizClose && ballAbove && cpuMistakeT===0){
-    // Tijd-check: zou de bal binnen kort bereik komen?
-    const timeUntilHittable = (p2.y - PR()*1.2 - ball.y) / Math.max(ball.vy, 0.5);
-    if(ball.vy >= -1 || (timeUntilHittable > 0 && timeUntilHittable < 40)){
-      cpuIn.j=true;
-      cpuJumpCooldown=18;
-    }
-  }
-  // Proactieve smash: bal komt hoog over het net, spring vroeg om hard te slaan
-  if(p2.grounded && cpuJumpCooldown<=0 && cpuMistakeT===0
-     && ball.x > NET_X() && ball.y < GND()-200
-     && Math.abs(pred.x - p2.x) < 50 && ball.vy >= -0.5){
+  if(p2.grounded && cpuTick>=cpuPlan.jumpAt && Math.abs(dx)<PR()*2.2){
     cpuIn.j=true;
-    cpuJumpCooldown=20;
+    cpuPlan.jumpAt=Infinity;
   }
 }
 
@@ -613,6 +636,7 @@ function hitBall(p){
   const R=PR(), BRv=BR();
   const dx=ball.x-p.x, dy=ball.y-p.y, d=Math.sqrt(dx*dx+dy*dy);
   if(d>=R+BRv || d<.01) return;
+  ballFlight++;
   const nx=dx/d, ny=dy/d;
   ball.x+=nx*(R+BRv-d); ball.y+=ny*(R+BRv-d);
 
@@ -715,16 +739,9 @@ function update(){
   p2.x = Math.max(R, Math.min(VW-R, p2.x));
 
   if(!dead){
-    const prevBallX=ball.x, prevBallY=ball.y;
-    ball.vy += G_BALL;
-    ball.vx *= .995;
-    ball.x += ball.vx; ball.y += ball.vy;
+    stepBallFlight(ball);
     ball.spin += ball.vx * 0.01;
     const BRv=BR();
-    if(ball.x-BRv<0){ ball.x=BRv; ball.vx=Math.abs(ball.vx)*.70; }
-    if(ball.x+BRv>VW){ ball.x=VW-BRv; ball.vx=-Math.abs(ball.vx)*.70; }
-    if(ball.y-BRv<0){ ball.y=BRv; ball.vy=Math.abs(ball.vy)*.7; }
-    resolveBallNet(ball,prevBallX,prevBallY);
     hitBall(p1);
     hitBall(p2);
     resolveBallNet(ball,ball.x,ball.y);
@@ -762,7 +779,21 @@ const menuContent = document.getElementById('menuContent');
 const playBtn = document.getElementById('playBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const controls = document.getElementById('controls');
+const difficultyPicker=document.getElementById('difficultyPicker');
 let menuMode='start';
+
+function syncDifficultyOptions(){
+  difficultyPicker.querySelectorAll('input').forEach(input=>{
+    input.checked=input.value===selectedDifficulty;
+  });
+  document.getElementById('difficultyHint').textContent=difficulties[selectedDifficulty].description;
+}
+difficultyPicker.addEventListener('change',e=>{
+  if(menuMode!=='start' || !Object.prototype.hasOwnProperty.call(difficulties,e.target.value)) return;
+  selectedDifficulty=e.target.value;
+  syncDifficultyOptions();
+  try{ localStorage.setItem('sumo-difficulty',selectedDifficulty); }catch{}
+});
 
 function showPlayingControls(show){
   pauseBtn.hidden=!show;
@@ -776,7 +807,8 @@ function pauseGame(){
   resetInput();
   resetClock();
   menuMode='pause';
-  menuContent.innerHTML='<div class="eyebrow">Even op adem komen</div><h1>Neem een<br><em>strandpauze.</em></h1><div class="sub">Je rally wacht op je.</div>';
+  difficultyPicker.hidden=true;
+  menuContent.innerHTML=`<div class="eyebrow">Even op adem komen</div><h1>Neem een<br><em>strandpauze.</em></h1><div class="sub">Je rally wacht op je.<br>Niveau: ${difficulties[matchDifficulty].name}</div>`;
   playBtn.textContent='Verder spelen';
   menu.inert=false;
   menu.classList.add('show');
@@ -800,10 +832,12 @@ pauseBtn.addEventListener('click',pauseGame);
 function showStartMenu(){
   resetInput();
   menuMode='start';
+  difficultyPicker.hidden=false;
+  syncDifficultyOptions();
   menuContent.innerHTML = `
     <div class="eyebrow">Sumo Beach Volley</div>
     <h1>Welkom in<br><em>Palm Bay.</em></h1>
-    <div class="sub">Zon op je huid. Zand tussen je tenen.<br>Tijd voor een goede smash.</div>
+    <div class="sub menu-intro">Zon op je huid. Zand tussen je tenen.<br>Tijd voor een goede smash.</div>
     <div class="matchup">
       <div class="matchup-player">${portraitMarkup(chosenChars.p1)}<strong>${characters[chosenChars.p1].name}</strong><small>Jij</small></div>
       <span class="versus">VS</span>
@@ -820,12 +854,14 @@ function showStartMenu(){
 function showWinMenu(){
   resetInput();
   menuMode='win';
+  difficultyPicker.hidden=true;
   const playerWon = score[0] >= WIN_POINTS;
   menuContent.innerHTML = `
     <div class="eyebrow">De laatste bal is gespeeld</div>
     <div class="winner">${playerWon ? 'JIJ WINT!' : 'CPU WINT!'}</div>
     <div class="matchup-player">${portraitMarkup(playerWon?chosenChars.p1:chosenChars.p2)}</div>
     <div class="final">Eindstand &nbsp; ${score[0]} - ${score[1]}</div>
+    <div class="sub">Niveau: ${difficulties[matchDifficulty].name}</div>
   `;
   playBtn.textContent = 'Opnieuw';
   menu.classList.add('show');
