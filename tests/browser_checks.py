@@ -79,6 +79,26 @@ with sync_playwright() as pw:
     assert 'Normaal' in page.locator('#matchLabel').text_content()
     print('PASS: niveaus kiezen met aanraking en toetsenbord; keuze blijft na herladen bewaard')
 
+    for result in page.evaluate((ROOT / 'tests/powers_checks.js').read_text()):
+        print('PASS:', result)
+
+    # Zowel de sneltoets als aanraken/Enter geven één actie aan de vaste game-loop.
+    page.evaluate("init(); running=true; serveMode=false; p1.power.charge=3; syncPowerUI();")
+    page.keyboard.press('e')
+    page.evaluate('__frame(__testTime+17)')
+    assert page.evaluate('p1.power.active && p1.power.charge===0')
+    page.evaluate('p1.power.active=false; p1.power.charge=3; syncPowerUI();')
+    page.locator('#powerBtn').tap()
+    page.evaluate('__frame(__testTime+17)')
+    assert page.evaluate('p1.power.active && p1.power.charge===0')
+    page.evaluate('p1.power.active=false; p1.power.charge=3; syncPowerUI();')
+    page.locator('#powerBtn').focus()
+    page.keyboard.press('Enter')
+    page.evaluate('__frame(__testTime+17)')
+    assert page.evaluate('p1.power.active && p1.power.charge===0')
+    page.evaluate('init(); running=true;')
+    print('PASS: krachtknop met aanraking, Enter en toets E')
+
     profiles = page.evaluate('''()=>{
         const results={};
         const originalRandom=Math.random;
@@ -227,6 +247,12 @@ with sync_playwright() as pw:
     assert page.evaluate('p1.x>VW*.27 && !p1.grounded')
     cdp.send('Input.dispatchTouchEvent', {'type': 'touchCancel', 'touchPoints': []})
     assert page.evaluate('!buttonHeld.r && !buttonHeld.j && controlPointers.size===0')
+    page.evaluate('init(); running=true; serveMode=false; p1.power.charge=3; syncPowerUI();')
+    power_touch = dict(center('#powerBtn'), id=4)
+    cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [right, jump, power_touch]})
+    page.evaluate('__frame(__testTime+17)')
+    assert page.evaluate('buttonHeld.r && buttonHeld.j && p1.power.active && p1.power.charge===0')
+    cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
     page.evaluate('init(); running=true;')
     cdp.send('Input.dispatchTouchEvent', {
         'type': 'touchStart', 'touchPoints': [{'x': 100, 'y': 700, 'id': 3}],
@@ -289,6 +315,15 @@ with sync_playwright() as pw:
                 const picker=difficultyPicker.getBoundingClientRect();
                 return picker.top>=rect.top && button.bottom<=rect.bottom;
             }'''), (width, height, level)
+        page.locator('#playBtn').click()
+        buttons = page.locator('#controls button').evaluate_all('''buttons=>buttons.map(b=>{
+            const r=b.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height};
+        })''')
+        for i, box in enumerate(buttons):
+            assert box['width'] >= 44 and box['height'] >= 44, (width, height, box)
+            assert box['left'] >= 0 and box['right'] <= width and box['bottom'] <= height, (width, height, box)
+            for other in buttons[i + 1:]:
+                assert box['right'] <= other['left'] or box['left'] >= other['right'] or box['bottom'] <= other['top'] or box['top'] >= other['bottom'], (box, other)
     print('PASS: correcte verhoudingen, scherp tekenbuffer en zichtbare keuzeknop op vier schermformaten')
 
     page.evaluate("localStorage.setItem('sumo-difficulty','ongeldig')")

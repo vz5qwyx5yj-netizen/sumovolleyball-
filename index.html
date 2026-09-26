@@ -23,8 +23,8 @@
       <span class="score" id="sc1">0</span><span class="score-divider">:</span><span class="score" id="sc2">0</span>
     </div>
     <div class="player-labels">
-      <div class="player-label" id="p1Label"><div class="score-name" id="p1Name">JIJ</div><div class="player-color"></div></div>
-      <div class="player-label" id="p2Label"><div class="score-name" id="p2Name">CPU</div><div class="player-color"></div></div>
+      <div class="player-label" id="p1Label"><div class="score-name" id="p1Name">JIJ</div><div class="player-color"></div><div class="power-readout" id="p1Power">⚡ 0/3</div></div>
+      <div class="player-label" id="p2Label"><div class="score-name" id="p2Name">CPU</div><div class="player-color"></div><div class="power-readout" id="p2Power">⚡ 0/3</div></div>
     </div>
     <div id="matchStatus" aria-live="polite"></div>
   </div>
@@ -36,7 +36,10 @@
       <button class="control-btn" type="button" data-control="l" aria-label="Naar links lopen">←</button>
       <button class="control-btn" type="button" data-control="r" aria-label="Naar rechts lopen">→</button>
     </div>
-    <button class="control-btn" id="jumpBtn" type="button" data-control="j">Spring ↑</button>
+    <div class="action-controls">
+      <button id="powerBtn" type="button" disabled><span>⚡ Kracht</span><small id="powerBtnStatus">0/3 contacten</small></button>
+      <button class="control-btn" id="jumpBtn" type="button" data-control="j">Spring ↑</button>
+    </div>
   </div>
 
   <div id="keuzescherm" inert>
@@ -82,12 +85,16 @@
         <b>Esc</b> om te pauzeren.
       </div>
       Raak de bal bovenaan je sprong voor een <b>smash</b>.<br>
+      <div class="power-help"><b id="powerHelpName"></b> <span id="powerHelpDescription"></span><br>
+        Laad op met <b>3 terugspeelballen</b>.<br>Activeer met <b>Kracht</b> of de toets <b>E</b>.
+      </div>
       Eerste bij <b>10 punten</b> wint
     </div>
   </div>
 </div>
 
 <script src="game-art.js"></script>
+<script src="game-powers.js"></script>
 <script>
 // ════════════════════════════════════════════
 //  VIRTUELE SPELWERELD — portrait 450x900
@@ -122,6 +129,13 @@ const bgImg=new Image();
 let bgReady=false;
 bgImg.onload=()=>{ bgReady=true; };
 bgImg.src='assets/images/tropical-beach-v2.png';
+const backgrounds={
+  easy:{name:'Palm Bay',image:bgImg},
+  normal:{name:'Vulkaankust',image:new Image()},
+  hard:{name:'Stormstrand',image:new Image()}
+};
+backgrounds.normal.image.src='assets/images/volcano-coast-v1.png';
+backgrounds.hard.image.src='assets/images/storm-beach-v1.png';
 
 const sumoAtlas=new Image();
 let atlasReady=false;
@@ -301,6 +315,11 @@ document.addEventListener('keydown', e=>{
     else if(menuMode==='pause'){ e.preventDefault(); resumeGame(); }
     return;
   }
+  if(running && !over && (e.key.toLowerCase()==='e' || (e.target===powerBtn && (e.key===' ' || e.key==='Enter')))){
+    e.preventDefault();
+    if(!e.repeat) requestPower();
+    return;
+  }
   if(!running || over || !gameKeys.has(e.key)) return;
   e.preventDefault();
   K[e.key]=true;
@@ -338,6 +357,7 @@ canvas.addEventListener('mouseleave', ()=>{
 });
 
 function resetInput(){
+  powerRequested=false;
   for(const key of Object.keys(K)) delete K[key];
   for(const id of Object.keys(touchData)) delete touchData[id];
   held1.l=false; held1.r=false;
@@ -389,6 +409,7 @@ function mkPlayer(side){
     facing: side===0 ? 1 : -1,
     bobT: Math.random()*Math.PI*2,
     hitT:0,
+    power:newPowerState(),
     charId,
     stats: charStats[charId] || charStats.turquoise
   };
@@ -399,6 +420,7 @@ function mkBall(sv){
   return { x:sx, y: GND()-300, vx:0, vy:0, spin:0 };
 }
 function resetPositions(){
+  clearActivePowers();
   p1.x=VW*0.27; p1.y=GND()-PR(); p1.vx=0; p1.vy=0; p1.grounded=true; p1.onNet=false;
   p2.x=VW*0.73; p2.y=GND()-PR(); p2.vx=0; p2.vy=0; p2.grounded=true; p2.onNet=false;
   p1NB.v=0; p2NB.v=0;
@@ -418,9 +440,12 @@ function init(){
   score=[0,0];
   ballTrail=[]; impact=null;
   updateScore();
+  syncPowerUI();
 }
 function updateScore(){
-  document.getElementById('matchLabel').textContent='Palm Bay · '+difficulties[matchDifficulty].name;
+  document.getElementById('scorebar').dataset.scene=matchDifficulty;
+  document.getElementById('matchLabel').textContent=backgrounds[matchDifficulty].name+' · '+difficulties[matchDifficulty].name;
+  canvas.setAttribute('aria-label','Sumo volleybal speelveld: '+backgrounds[matchDifficulty].name);
   document.getElementById('sc1').textContent=score[0];
   document.getElementById('sc2').textContent=score[1];
   document.getElementById('p1Name').textContent=characters[chosenChars.p1].name+' · JIJ';
@@ -529,6 +554,7 @@ function updateCPU(){
     cpuIn.j=true;
     cpuPlan.jumpAt=Infinity;
   }
+  considerCPUPower(observed);
 }
 
 const cpuL=()=>cpuIn.l;
@@ -633,33 +659,38 @@ function resolveBallNet(b,prevX,prevY){
 }
 
 function hitBall(p){
-  const R=PR(), BRv=BR();
+  const R=ballContactRadius(p), BRv=BR();
   const dx=ball.x-p.x, dy=ball.y-p.y, d=Math.sqrt(dx*dx+dy*dy);
   if(d>=R+BRv || d<.01) return;
   ballFlight++;
   const nx=dx/d, ny=dy/d;
   ball.x+=nx*(R+BRv-d); ball.y+=ny*(R+BRv-d);
+  const dot=(ball.vx-p.vx)*nx+(ball.vy-p.vy)*ny;
+  if(dot>=0) return;
+  const powered=p.charId==='rood' && p.power.active;
+  chargePower(p);
+  if(powered || (p.charId==='paars' && p.power.active)){
+    p.power.active=false; p.power.ticks=0;
+  }
 
   // SMASH — raak de bal rond het hoogste punt van je sprong:
   // bal schiet steil en extra hard omlaag richting de tegenstander
   const nearApex = !p.grounded && Math.abs(p.vy) < 2.4;
   if(!serveMode && nearApex && dy < R*0.5){
-    const atk = p.stats?.attack||1;
+    const atk = (p.stats?.attack||1)*(powered?1.45:1);
     const dir = p.side===0 ? 1 : -1;
     ball.vx = dir * 7.5 * atk + p.vx*0.4;
     ball.vy = 6.0 * atk;
     ball.spin = ball.vx * 0.08;
     p.hitT=16;
-    impact={x:ball.x,y:ball.y,life:24,smash:true,color:characters[p.charId].color};
+    impact={x:ball.x,y:ball.y,life:24,smash:true,power:powered,color:characters[p.charId].color};
     ball.trailColor=characters[p.charId].color;
     return; // geen normale reflectie of snelheidscap
   }
 
-  const dot=(ball.vx-p.vx)*nx+(ball.vy-p.vy)*ny;
-  if(dot>=0) return;
-  p.hitT=9;
-  impact={x:ball.x,y:ball.y,life:12,smash:false,color:'#fff5d0'};
-  ball.trailColor=null;
+  p.hitT=powered?16:9;
+  impact={x:ball.x,y:ball.y,life:powered?24:12,smash:false,power:powered,color:powered?characters[p.charId].color:'#fff5d0'};
+  ball.trailColor=powered?characters[p.charId].color:null;
   const isTop = ny < -0.3;
   const boost = (serveMode ? 1.5 : isTop ? 1.85 : 1.70) * (p.stats?.attack||1);
   ball.vx -= boost*dot*nx;
@@ -682,7 +713,8 @@ function hitBall(p){
     serveMode=false;
   }
   // Snelheidscap
-  const spd=Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy), mx=9.0;
+  if(powered){ ball.vx*=1.45; ball.vy*=1.45; }
+  const spd=Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy), mx=powered?13:9;
   if(spd>mx){ ball.vx*=mx/spd; ball.vy*=mx/spd; }
   ball.spin = ball.vx * 0.05;
 }
@@ -692,12 +724,15 @@ function hitBall(p){
 // ════════════════════════════════════════════
 function updatePlayer(p, nb, goL, goR, goJ, jLockGet, jLockSet){
   const GY=GND(), R=PR();
-  const maxSpd = SPD()*(p.grounded?1.0:AIR_CTRL())*(p.stats?.speed||1);
-  const accel = p.grounded ? 1.0 : 0.35;
-  if(goL()){
+  const sprint=p.charId==='turquoise' && p.power.active;
+  const maxSpd = SPD()*(p.grounded?1.0:AIR_CTRL())*(p.stats?.speed||1)*(sprint?1.8:1);
+  const accel = p.grounded ? 1.0 : (sprint ? .6 : .35);
+  const direction=goL()?-1:goR()?1:sprint?p.power.direction:0;
+  if(sprint && direction) p.power.direction=direction;
+  if(direction<0){
     p.vx += (-maxSpd - p.vx)*accel;
     p.facing = -1;
-  } else if(goR()){
+  } else if(direction>0){
     p.vx += (maxSpd - p.vx)*accel;
     p.facing = 1;
   } else {
@@ -713,6 +748,7 @@ function updatePlayer(p, nb, goL, goR, goJ, jLockGet, jLockSet){
   p.x += p.vx; p.y += p.vy;
   if(p.y-R<2){ p.y=R+2; p.vy=Math.max(0,p.vy); }
   if(p.y>=GY-R){ p.y=GY-R; p.vy=0; p.grounded=true; p.onNet=false; }
+  if(p.grounded) p.power.airJumpUsed=false;
   p.x = Math.max(R, Math.min(VW-R, p.x));
   playerNet(p, nb);
   // Bob animatie als hij loopt
@@ -726,8 +762,13 @@ function update(){
   if(impact && --impact.life<=0) impact=null;
   if(p1.hitT>0) p1.hitT--;
   if(p2.hitT>0) p2.hitT--;
+  tickPowers();
 
   updateCPU();
+  if(powerRequested){
+    activatePower(p1,p1L()?-1:p1R()?1:0);
+    powerRequested=false;
+  }
 
   updatePlayer(p1, p1NB, p1L, p1R, p1J, ()=>jLock1, v=>jLock1=v);
   updatePlayer(p2, p2NB, cpuL, cpuR, cpuJ, ()=>jLock2, v=>jLock2=v);
@@ -750,6 +791,7 @@ function update(){
 
     if(ball.y+BRv >= GY){
       dead=true; deadT=80;
+      clearActivePowers();
       const w = ball.x < NET_X() ? 1 : 0;
       score[w]++;
       updateScore();
@@ -769,6 +811,7 @@ function update(){
       p1NB.v=0; p2NB.v=0;
     }
   }
+  syncPowerUI();
 }
 
 // ════════════════════════════════════════════
@@ -799,6 +842,7 @@ function showPlayingControls(show){
   pauseBtn.hidden=!show;
   controls.hidden=!show;
   document.getElementById('scorebar').hidden=!show;
+  syncPowerUI();
 }
 
 function pauseGame(){
@@ -834,6 +878,8 @@ function showStartMenu(){
   menuMode='start';
   difficultyPicker.hidden=false;
   syncDifficultyOptions();
+  document.getElementById('powerHelpName').textContent=powers[chosenChars.p1].name+'.';
+  document.getElementById('powerHelpDescription').textContent=powers[chosenChars.p1].description;
   menuContent.innerHTML = `
     <div class="eyebrow">Sumo Beach Volley</div>
     <h1>Welkom in<br><em>Palm Bay.</em></h1>
@@ -906,7 +952,7 @@ keuzeCarousel.innerHTML=chars.map((id,index)=>{
   return `<article class="keuze-kaart" data-char="${id}" style="${characterStyle(id)}">
     <div class="fighter-heading"><div><h3>${c.name}</h3><span class="fighter-role">${c.role}</span></div><span class="fighter-number">0${index+1} / 04</span></div>
     <div class="fighter-stage">${portraitMarkup(id)}</div>
-    <p class="fighter-description">${c.description}</p>
+    <p class="fighter-description"><b>${powers[id].name}.</b> ${powers[id].description}</p>
     <div class="fighter-stats">${stats}</div>
   </article>`;
 }).join('');
